@@ -38,7 +38,7 @@ describe('resident profile validation', () => {
     expect(validateResidentProfile(profile).error).toMatch(expectedError);
   });
 
-  test('calculates the next verification date as one week after rejection', () => {
+  test('calculates the next verification date as three days after rejection', () => {
     const rejectedAt = '2026-11-17T10:00:00.000Z';
 
     expect(getVerificationResubmissionAt(rejectedAt).getTime())

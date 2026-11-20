@@ -38,3 +38,13 @@ export function getEffectiveVerificationStatus(profile, now = Date.now()) {
   }
   return status;
 }
+
+export function isGuestDeviceProfile(profile, now = Date.now()) {
+  const status = getEffectiveVerificationStatus(profile, now);
+  return !['VERIFIED', 'PENALIZED', 'BANNED'].includes(status);
+}
+
+export function isPendingVerificationRequest(profile, now = Date.now()) {
+  return getEffectiveVerificationStatus(profile, now) === 'PENDING'
+    && !getModerationRestriction(profile, now);
+}

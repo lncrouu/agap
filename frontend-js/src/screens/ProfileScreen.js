@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../supabaseClient';
 import { getVerificationResubmissionAt, validateResidentProfile } from '../utils/profileValidation';
+import { getModerationRestriction } from '../utils/moderation';
 import ActionDialog from '../components/ActionDialog';
 
-export default function ProfileScreen({ onBack, onAdminLogin, onNavigate }) {
+export default function ProfileScreen({ onBack, onAdminLogin, onNavigate, userProfile }) {
   const [deviceId, setDeviceId] = useState('');
   const [profile, setProfile] = useState(null);
   const [isEditing, setIsEditing] = useState(false);
@@ -17,6 +18,7 @@ export default function ProfileScreen({ onBack, onAdminLogin, onNavigate }) {
   const [profileClock, setProfileClock] = useState(Date.now());
 
   const verificationStatus = (profile?.verification_status || '').toUpperCase();
+  const profileRestriction = getModerationRestriction(profile, profileClock);
   const verificationResubmissionAt = verificationStatus === 'REJECTED'
     ? getVerificationResubmissionAt(profile?.verification_rejected_at)
     : null;
@@ -35,10 +37,15 @@ export default function ProfileScreen({ onBack, onAdminLogin, onNavigate }) {
   }, []);
 
   useEffect(() => {
-    if (verificationStatus !== 'REJECTED') return undefined;
+    if (!userProfile || userProfile.device_id !== deviceId) return;
+    setProfile(userProfile);
+  }, [deviceId, userProfile]);
+
+  useEffect(() => {
+    if (verificationStatus !== 'REJECTED' && profileRestriction?.kind !== 'PENALIZED') return undefined;
     const timer = window.setInterval(() => setProfileClock(Date.now()), 30000);
     return () => window.clearInterval(timer);
-  }, [verificationStatus, profile?.verification_rejected_at]);
+  }, [verificationStatus, profile?.verification_rejected_at, profileRestriction?.kind]);
 
   useEffect(() => {
     if (!isVerificationCooldownActive) return;
@@ -142,7 +149,8 @@ export default function ProfileScreen({ onBack, onAdminLogin, onNavigate }) {
         verification_status: profile && ['PENALIZED', 'BANNED'].includes((profile.verification_status || '').toUpperCase())
           ? profile.verification_status
           : 'PENDING',
-        id_proof_photo: idProofPhoto
+        id_proof_photo: idProofPhoto,
+        ...(verificationStatus === 'REJECTED' ? { moderation_message: null } : {})
       };
 
       if (profile) {
@@ -239,6 +247,17 @@ export default function ProfileScreen({ onBack, onAdminLogin, onNavigate }) {
           <div style={styles.userMeta}>Full Legal Name: {profile.full_name}</div>
           <div style={styles.userMeta}>Barangay Residency: {profile.barangay}</div>
           <div style={styles.userMeta}>Phone Number: {profile.phone || profile.phone_number || 'Not provided'}</div>
+          {verificationStatus === 'REJECTED' && profile.moderation_message && (
+            <div style={styles.rejectionReason}>
+              <strong>Reason for rejection:</strong> {profile.moderation_message}
+            </div>
+          )}
+          {profileRestriction?.kind === 'PENALIZED' && (
+            <div style={styles.moderationNotice} role="alert">
+              <strong>Report access is temporarily restricted.</strong>
+              <div>{profileRestriction.message}</div>
+            </div>
+          )}
 
           <div style={styles.infoBanner}>
             Your details are active. You can report hazards and access emergency features.
@@ -385,6 +404,8 @@ const styles = {
   userName: { fontSize: '16px', fontWeight: '800', color: '#0F172A', margin: '0 0 6px 0' },
   userMeta: { fontSize: '12px', color: '#475569', marginBottom: '4px' },
   infoBanner: { marginTop: '12px', backgroundColor: '#F0FDF4', border: '1px solid #A7F3D0', padding: '8px', borderRadius: '6px', fontSize: '11px', color: '#065F46', lineHeight: '1.4' },
+  rejectionReason: { marginTop: '12px', padding: '10px 12px', backgroundColor: '#FEF2F2', border: '1px solid #FECACA', borderLeft: '4px solid #DC2626', borderRadius: '8px', color: '#7F1D1D', fontSize: '12px', lineHeight: '1.5', overflowWrap: 'anywhere' },
+  moderationNotice: { marginTop: '12px', padding: '10px 12px', backgroundColor: '#FFF7ED', border: '1px solid #FED7AA', borderLeft: '4px solid #EA580C', borderRadius: '8px', color: '#7C2D12', fontSize: '12px', lineHeight: '1.5', whiteSpace: 'pre-line', overflowWrap: 'anywhere' },
   optionalVerificationNotice: { marginBottom: '14px', padding: '10px 12px', backgroundColor: '#EFF6FF', border: '1px solid #BFDBFE', borderRadius: '8px', color: '#1E3A8A', fontSize: '11px', lineHeight: '1.5' },
   editBtn: { width: '100%', marginTop: '12px', padding: '10px', backgroundColor: '#0F766E', color: '#FFFFFF', border: 'none', borderRadius: '8px', fontSize: '12px', fontWeight: '800', cursor: 'pointer' },
   authCard: { backgroundColor: '#FFFFFF', border: '1px solid #CBD5E1', borderRadius: '12px', padding: '16px' },

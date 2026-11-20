@@ -1,16 +1,31 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '../supabaseClient';
+import ActionDialog from '../components/ActionDialog';
+import { getModerationRestriction } from '../utils/moderation';
 
-export default function DangerZoneMapScreen({ onBack }) {
+export default function DangerZoneMapScreen({ onBack, userProfile }) {
   const [selectedFilter, setSelectedFilter] = useState('ALL');
   const [activePinId, setActivePinId] = useState(null);
   const [selectedHazard, setSelectedHazard] = useState(null);
   const [activeHazards, setActiveHazards] = useState([]);
   const [userGps, setUserGps] = useState({ lat: 13.7565, lng: 121.0583 });
   const [inspectImage, setInspectImage] = useState(null);
+  const [dialog, setDialog] = useState(null);
   const mapContainerRef = useRef(null);
   const mapInstanceRef = useRef(null);
   const markersRef = useRef({});
+  const mapRestriction = getModerationRestriction(userProfile);
+
+  useEffect(() => {
+    if (mapRestriction?.kind === 'PENALIZED') {
+      setDialog({
+        type: 'message',
+        tone: 'warning',
+        title: 'Active report penalty',
+        message: mapRestriction.message
+      });
+    }
+  }, [userProfile?.device_id, userProfile?.verification_status, userProfile?.penalty_until, userProfile?.moderation_message]);
 
   useEffect(() => {
     fetchActiveHazards();
@@ -313,6 +328,7 @@ export default function DangerZoneMapScreen({ onBack }) {
           </div>
         </div>
       )}
+      <ActionDialog dialog={dialog} onClose={() => setDialog(null)} />
     </div>
   );
 }

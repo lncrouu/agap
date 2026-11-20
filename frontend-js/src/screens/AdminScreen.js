@@ -2,7 +2,12 @@ import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '../supabaseClient';
 import ActionDialog from '../components/ActionDialog';
 import { formatTicketReference } from '../utils/ticketNumber';
-import { getEffectiveVerificationStatus, getModerationRestriction } from '../utils/moderation';
+import {
+  getEffectiveVerificationStatus,
+  getModerationRestriction,
+  isGuestDeviceProfile,
+  isPendingVerificationRequest
+} from '../utils/moderation';
 
 // Hoisted Helper Functions (TDZ Safe & Production Ready)
 function parsePhotos(raw) {
@@ -40,9 +45,12 @@ function parsePhotos(raw) {
 }
 
 function getMemoEvidencePhotos(report) {
+  const isResolved = (report?.status || '').trim().toUpperCase() === 'RESOLVED';
   return [
     ...parsePhotos(report?.proof_photos || report?.photos),
-    ...(report?.response_photo ? [report.response_photo] : [])
+    ...(isResolved
+      ? (report?.progress_photo ? [report.progress_photo] : [])
+      : (report?.response_photo ? [report.response_photo] : []))
   ];
 }
 
@@ -132,6 +140,8 @@ export default function AdminScreen({ onBack }) {
   const [moderationTarget, setModerationTarget] = useState(null);
   const [moderationAction, setModerationAction] = useState('PENALIZED');
   const [moderationMessage, setModerationMessage] = useState('');
+  const [verificationRejectionTarget, setVerificationRejectionTarget] = useState(null);
+  const [verificationRejectionReason, setVerificationRejectionReason] = useState('');
   const [penaltyDays, setPenaltyDays] = useState('');
   const [isUpdatingModeration, setIsUpdatingModeration] = useState(false);
 
@@ -520,24 +530,25 @@ export default function AdminScreen({ onBack }) {
   };
 
   // User Account Moderation
-  const handleUpdateUserStatus = async (deviceId, newStatus, reason = '') => {
+  const handleUpdateUserStatus = async (deviceId, newStatus) => {
     const targetUser = profiles.find((profile) => profile.device_id === deviceId);
     const displayName = targetUser?.username || deviceId || 'this user';
     const actionLabels = {
       PENALIZED: 'issue a penalty to',
       BANNED: 'ban',
-      VERIFIED: 'approve and verify',
-      REJECTED: 'reject the verification request for'
+      VERIFIED: 'approve and verify'
     };
 
     const actionLabel = actionLabels[newStatus] || 'change the status of';
-    const reasonText = reason ? `\nReason: ${reason}` : '';
-    if (!(await confirmAction(`Confirm that you want to ${actionLabel} ${displayName}?${reasonText}`))) return;
+    if (!(await confirmAction(`Confirm that you want to ${actionLabel} ${displayName}?`))) return;
 
     try {
       const { error } = await supabase
         .from('profiles')
-        .update({ verification_status: newStatus })
+        .update({
+          verification_status: newStatus,
+          ...(newStatus === 'VERIFIED' ? { moderation_message: null } : {})
+        })
         .eq('device_id', deviceId);
 
       if (error) throw error;
@@ -553,6 +564,39 @@ export default function AdminScreen({ onBack }) {
       fetchAdminData();
     } catch (err) {
       showMessage("Moderation failed: " + err.message, 'error');
+    }
+  };
+
+  const openVerificationRejectionForm = (user) => {
+    setVerificationRejectionTarget(user);
+    setVerificationRejectionReason('');
+  };
+
+  const handleRejectVerification = async () => {
+    if (!verificationRejectionTarget || isUpdatingModeration) return;
+    const reason = verificationRejectionReason.trim();
+    if (!reason) return showMessage('Enter a reason so the applicant knows what needs to be corrected.', 'error');
+
+    const deviceId = verificationRejectionTarget.device_id;
+    if (!deviceId) return showMessage('This verification request does not have a device ID.', 'error');
+    if (!(await confirmAction(`Reject the resident verification request for ${verificationRejectionTarget.username || deviceId}?\n\nReason: ${reason}`))) return;
+
+    setIsUpdatingModeration(true);
+    try {
+      const { error } = await supabase
+        .from('profiles')
+        .update({ verification_status: 'REJECTED', moderation_message: reason })
+        .eq('device_id', deviceId);
+      if (error) throw error;
+
+      setVerificationRejectionTarget(null);
+      setVerificationRejectionReason('');
+      showMessage(`Verification request rejected. The applicant can review the reason in their profile.`, 'success');
+      fetchAdminData();
+    } catch (err) {
+      showMessage(`Could not reject verification: ${err.message}`, 'error');
+    } finally {
+      setIsUpdatingModeration(false);
     }
   };
 
@@ -880,7 +924,7 @@ Project AGAP Operations Portal                  Signature & Date / Time Received
     .sort((a, b) => (a.username || a.full_name || '').localeCompare(b.username || b.full_name || ''));
 
   const guestUsers = profiles
-    .filter((p) => ['GUEST', ''].includes(getEffectiveVerificationStatus(p)))
+    .filter((p) => isGuestDeviceProfile(p))
     .sort((a, b) => (a.device_id || '').localeCompare(b.device_id || ''));
 
   const moderatedUsers = profiles
@@ -888,8 +932,7 @@ Project AGAP Operations Portal                  Signature & Date / Time Received
     .sort((a, b) => (a.username || a.device_id || '').localeCompare(b.username || b.device_id || ''));
 
   const pendingVerificationRequests = profiles
-    .filter((p) => !['VERIFIED', 'GUEST'].includes(getEffectiveVerificationStatus(p))
-      && !['PENALIZED', 'BANNED'].includes((p.verification_status || '').toUpperCase()))
+    .filter((p) => isPendingVerificationRequest(p))
     .sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
 
   // Vector Line Analytics Data Generator
@@ -990,7 +1033,7 @@ Project AGAP Operations Portal                  Signature & Date / Time Received
     return styles.badgeTeal;
   };
 
-  const renderArchiveTicketDetails = (rep, submitter) => {
+  const renderArchiveTicketDetails = (rep, submitter, includeResponderEvidence = true) => {
     const photoList = parsePhotos(rep.proof_photos || rep.photos);
     const mapQuery = rep.coordinates || rep.location;
     return (
@@ -1091,7 +1134,7 @@ Project AGAP Operations Portal                  Signature & Date / Time Received
             </div>
           </div>
         )}
-        {rep.response_photo && (
+        {includeResponderEvidence && rep.response_photo && (
           <div style={styles.detailSectionPlain}>
             <span style={styles.fieldLabel}>Responder field evidence photo</span>
             <img
@@ -2032,8 +2075,8 @@ Project AGAP Operations Portal                  Signature & Date / Time Received
                       <div style={styles.userRightActionRow}>
                         <button style={styles.btnViewUser} onClick={() => handleOpenUserDetails(user)}>View Details</button>
                         <div style={styles.userModerationActions}>
-                          <button style={styles.btnWarn} onClick={() => openModerationForm(user, 'PENALIZED')}>Penalty</button>
-                          <button style={styles.btnBan} onClick={() => openModerationForm(user, 'BANNED')}>Ban</button>
+                          <button style={styles.btnWarn} onClick={() => openModerationForm(user, 'PENALIZED')}>Issue penalty</button>
+                          <button style={styles.btnBan} onClick={() => openModerationForm(user, 'BANNED')}>Ban device</button>
                         </div>
                       </div>
                     </div>
@@ -2064,8 +2107,8 @@ Project AGAP Operations Portal                  Signature & Date / Time Received
                       <div style={styles.userRightActionRow}>
                         <button style={styles.btnViewUser} onClick={() => handleOpenUserDetails(user)}>View Details</button>
                         <div style={styles.userModerationActions}>
-                          <button style={styles.btnWarn} onClick={() => openModerationForm(user, 'PENALIZED')}>Penalty</button>
-                          <button style={styles.btnBan} onClick={() => openModerationForm(user, 'BANNED')}>Ban</button>
+                          <button style={styles.btnWarn} onClick={() => openModerationForm(user, 'PENALIZED')}>Issue penalty</button>
+                          <button style={styles.btnBan} onClick={() => openModerationForm(user, 'BANNED')}>Ban device</button>
                         </div>
                       </div>
                     </div>
@@ -2103,9 +2146,6 @@ Project AGAP Operations Portal                  Signature & Date / Time Received
                       <div style={styles.userRightActionRow}>
                         <button style={styles.btnViewUser} onClick={() => handleOpenUserDetails(user)}>View Details</button>
                         <div style={styles.userModerationActions}>
-                          {!isBanned && (
-                            <button style={styles.btnBan} onClick={() => openModerationForm(user, 'BANNED')}>Ban</button>
-                          )}
                           <button style={styles.btnWarn} onClick={() => handleLiftModeration(user)}>
                             {isBanned ? 'Lift Ban' : 'Lift Penalty'}
                           </button>
@@ -2150,21 +2190,9 @@ Project AGAP Operations Portal                  Signature & Date / Time Received
                         </button>
                         <button
                           style={styles.btnRejectUser}
-                          onClick={() => handleUpdateUserStatus(req.device_id, 'REJECTED', 'ID Proof rejected')}
+                          onClick={() => openVerificationRejectionForm(req)}
                         >
                           Reject
-                        </button>
-                        <button
-                          style={styles.btnWarn}
-                          onClick={() => openModerationForm(req, 'PENALIZED')}
-                        >
-                          Penalty
-                        </button>
-                        <button
-                          style={styles.btnBan}
-                          onClick={() => openModerationForm(req, 'BANNED')}
-                        >
-                          Ban
                         </button>
                       </div>
                     </div>
@@ -2337,7 +2365,7 @@ Project AGAP Operations Portal                  Signature & Date / Time Received
                     </div>
 
                     {/* Section III: Exhibit Photos */}
-                    <div style={styles.memoSectionHeading}>III. CITIZEN AND FIELD-VERIFICATION PHOTOGRAPHIC EVIDENCE</div>
+                    <div style={styles.memoSectionHeading}>III. CITIZEN AND FIELD PHOTOGRAPHIC EVIDENCE</div>
                     {selectedMemoPhotos.length > 0 ? (
                       <div style={styles.memoPhotoGrid}>
                         {selectedMemoPhotos.map((src, i) => (
@@ -2353,7 +2381,7 @@ Project AGAP Operations Portal                  Signature & Date / Time Received
 
                     <div style={styles.memoSectionHeading}>IV. IMMEDIATE RESPONSE REQUEST</div>
                     <p style={styles.memoDirectiveText}>
-                      Project AGAP has reviewed the citizen report, completed the investigation, and accepted the reported hazard for response. The attached citizen-submitted and responder field-verification photographs document the reported condition. We respectfully request an immediate on-site assessment and appropriate action by the responsible authority. Please acknowledge receipt and provide a response update for community safety.
+                      Project AGAP has reviewed the citizen report, completed the investigation, and accepted the reported hazard for response. The attached citizen-submitted and field photographs document the reported condition. We respectfully request an immediate on-site assessment and appropriate action by the responsible authority. Please acknowledge receipt and provide a response update for community safety.
                     </p>
 
                     <div style={styles.signatureRow}>
@@ -2420,7 +2448,7 @@ Project AGAP Operations Portal                  Signature & Date / Time Received
                         <div style={styles.expandHintText}>Open ticket details and evidence &rarr;</div>
                       ) : (
                         <div style={styles.accordionDetailBox} onClick={(event) => event.stopPropagation()}>
-                          {renderArchiveTicketDetails(rep, submitter)}
+                          {renderArchiveTicketDetails(rep, submitter, false)}
                           {rep.progress_photo && (
                             <div style={styles.detailSectionPlain}>
                               <span style={styles.fieldLabel}>Resolution photo</span>
@@ -2760,7 +2788,7 @@ Project AGAP Operations Portal                  Signature & Date / Time Received
                               </div>
                             </div>
                           )}
-                          {report.response_photo && (
+                          {(report.status || '').toUpperCase() !== 'RESOLVED' && report.response_photo && (
                             <div style={styles.userReportPhotoSection}>
                               <div style={styles.userDetailsLabel}>Responder verification photo</div>
                               <img src={report.response_photo} alt="Responder verification" style={styles.fieldEvidenceImage} onClick={() => { handleCloseUserDetails(); setInspectImage(report.response_photo); }} />
@@ -2786,7 +2814,7 @@ Project AGAP Operations Portal                  Signature & Date / Time Received
       {moderationTarget && (
         <div style={styles.modalBackdrop} onClick={() => setModerationTarget(null)}>
           <div
-            style={{ ...styles.modalContent, textAlign: 'left', maxWidth: '440px' }}
+            style={{ ...styles.modalContent, textAlign: 'left', maxWidth: '500px' }}
             onClick={(event) => event.stopPropagation()}
           >
             <div style={styles.modalHeader}>
@@ -2805,6 +2833,14 @@ Project AGAP Operations Portal                  Signature & Date / Time Received
             <p style={styles.modalSubtext}>
               {moderationTarget.username || moderationTarget.full_name || 'Device user'} · Device ID: {moderationTarget.device_id}
             </p>
+            <div style={moderationAction === 'BANNED' ? styles.banActionSummary : styles.penaltyActionSummary}>
+              <strong>{moderationAction === 'BANNED' ? 'Full device access will be blocked' : 'Only hazard report submissions will be paused'}</strong>
+              <span>
+                {moderationAction === 'BANNED'
+                  ? 'The user will see this reason on the access-restricted screen until the ban is lifted.'
+                  : 'Other app features remain available. The user will see the end date and your reason on the report and profile screens.'}
+              </span>
+            </div>
             {moderationAction === 'PENALIZED' && (
               <div style={{ marginBottom: '12px' }}>
                 <label style={styles.fieldLabel}>REPORTING PENALTY DURATION (DAYS) *</label>
@@ -2821,7 +2857,7 @@ Project AGAP Operations Portal                  Signature & Date / Time Received
               </div>
             )}
             <div style={{ marginBottom: '12px' }}>
-              <label style={styles.fieldLabel}>MESSAGE SHOWN TO THE USER *</label>
+              <label style={styles.fieldLabel}>REASON / MESSAGE SHOWN TO THE USER *</label>
               <textarea
                 style={styles.textareaInput}
                 rows="4"
@@ -2836,6 +2872,10 @@ Project AGAP Operations Portal                  Signature & Date / Time Received
               {moderationAction === 'BANNED'
                 ? 'A ban locks the entire app on this device until an administrator lifts it.'
                 : 'A penalty blocks report submissions only. Other app features remain available, and reporting is restored when the penalty expires.'}
+            </div>
+            <div style={styles.userMessagePreview}>
+              <div style={styles.previewLabel}>USER-FACING MESSAGE PREVIEW</div>
+              <div>{moderationMessage.trim() || 'Your reason will appear here after you enter it.'}</div>
             </div>
             <div style={styles.modalBtnRow}>
               <button
@@ -2853,6 +2893,67 @@ Project AGAP Operations Portal                  Signature & Date / Time Received
                 disabled={isUpdatingModeration || !moderationMessage.trim() || (moderationAction === 'PENALIZED' && !penaltyDays)}
               >
                 {isUpdatingModeration ? 'Saving...' : moderationAction === 'BANNED' ? 'Confirm Ban' : 'Apply Penalty'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {verificationRejectionTarget && (
+        <div style={styles.modalBackdrop} onClick={() => setVerificationRejectionTarget(null)}>
+          <div
+            style={{ ...styles.modalContent, textAlign: 'left', maxWidth: '500px' }}
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div style={styles.modalHeader}>
+              <span style={styles.modalTitle}>Reject Verification Request</span>
+              <button
+                type="button"
+                style={styles.closeBtn}
+                aria-label="Close rejection form"
+                onClick={() => setVerificationRejectionTarget(null)}
+              >
+                ✕
+              </button>
+            </div>
+            <p style={styles.modalSubtext}>
+              {verificationRejectionTarget.username || verificationRejectionTarget.full_name || 'Resident applicant'} · Device ID: {verificationRejectionTarget.device_id}
+            </p>
+            <div style={styles.rejectActionSummary}>
+              Rejection keeps the account unverified. The applicant can read your reason here and update their verification details.
+            </div>
+            <div style={{ marginBottom: '12px' }}>
+              <label style={styles.fieldLabel}>REASON SHOWN TO THE APPLICANT *</label>
+              <textarea
+                style={styles.textareaInput}
+                rows="4"
+                maxLength={500}
+                placeholder="Explain what is incorrect or what proof needs to be provided..."
+                value={verificationRejectionReason}
+                onChange={(event) => setVerificationRejectionReason(event.target.value)}
+                required
+              />
+            </div>
+            <div style={styles.userMessagePreview}>
+              <div style={styles.previewLabel}>APPLICANT-FACING REASON PREVIEW</div>
+              <div>{verificationRejectionReason.trim() || 'Your explanation will appear here after you enter it.'}</div>
+            </div>
+            <div style={styles.modalBtnRow}>
+              <button
+                type="button"
+                style={styles.cancelBtn}
+                onClick={() => setVerificationRejectionTarget(null)}
+                disabled={isUpdatingModeration}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                style={styles.btnRejectUser}
+                onClick={handleRejectVerification}
+                disabled={isUpdatingModeration || !verificationRejectionReason.trim()}
+              >
+                {isUpdatingModeration ? 'Saving...' : 'Reject Verification'}
               </button>
             </div>
           </div>
@@ -2988,6 +3089,11 @@ const styles = {
   btnStepDisabled: { flex: '1 1 140px', minHeight: '40px', padding: '9px 12px', backgroundColor: '#E2E8F0', color: '#64748B', border: '1px solid #CBD5E1', borderRadius: '7px', fontSize: '12px', fontWeight: '400', cursor: 'not-allowed' },
   btnBulkDisabled: { width: '100%', padding: '10px', backgroundColor: '#E2E8F0', color: '#64748B', border: '1px solid #CBD5E1', borderRadius: '6px', fontSize: '11px', fontWeight: '500', cursor: 'not-allowed' },
   workflowHint: { padding: '8px 10px', backgroundColor: '#F1F5F9', color: '#475569', border: '1px solid #CBD5E1', borderRadius: '7px', fontSize: '11px', lineHeight: '1.45' },
+  banActionSummary: { display: 'flex', flexDirection: 'column', gap: '4px', marginBottom: '14px', padding: '12px', backgroundColor: '#FEF2F2', color: '#7F1D1D', border: '1px solid #FECACA', borderLeft: '4px solid #DC2626', borderRadius: '8px', fontSize: '12px', lineHeight: '1.45' },
+  penaltyActionSummary: { display: 'flex', flexDirection: 'column', gap: '4px', marginBottom: '14px', padding: '12px', backgroundColor: '#FFF7ED', color: '#7C2D12', border: '1px solid #FED7AA', borderLeft: '4px solid #EA580C', borderRadius: '8px', fontSize: '12px', lineHeight: '1.45' },
+  rejectActionSummary: { marginBottom: '14px', padding: '12px', backgroundColor: '#FFF7ED', color: '#7C2D12', border: '1px solid #FED7AA', borderLeft: '4px solid #EA580C', borderRadius: '8px', fontSize: '12px', lineHeight: '1.45' },
+  userMessagePreview: { display: 'flex', flexDirection: 'column', gap: '5px', marginTop: '12px', padding: '12px', backgroundColor: '#F8FAFC', color: '#334155', border: '1px solid #CBD5E1', borderRadius: '8px', fontSize: '12px', lineHeight: '1.5', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' },
+  previewLabel: { color: '#64748B', fontSize: '9px', fontWeight: '800', letterSpacing: '0.6px' },
   dispatchOutcomeBox: { display: 'flex', flexDirection: 'column', gap: '6px', padding: '12px', backgroundColor: '#ECFDF5', border: '1px solid #99F6E4', borderLeft: '4px solid #0F766E', borderRadius: '8px' },
   dispatchOutcomeTitle: { color: '#0F766E', fontSize: '11px', fontWeight: '700', letterSpacing: '0.4px' },
   dispatchOutcomeMeta: { color: '#334155', fontSize: '12px', fontWeight: '400', lineHeight: '1.45' },
@@ -3040,13 +3146,13 @@ const styles = {
   userSummaryDevice: { marginTop: '3px', color: '#475569', fontSize: '12px', lineHeight: '1.45', overflowWrap: 'anywhere' },
   numBadge: { fontSize: '12px', fontWeight: '800', color: '#64748B' },
   userNameText: { fontSize: '15px', fontWeight: '800', color: '#0F172A', marginBottom: '3px' },
-  userRightActionRow: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px', width: '100%' },
-  userModerationActions: { display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '8px', marginLeft: 'auto' },
-  btnViewUser: { padding: '7px 10px', backgroundColor: '#0F766E', color: '#FFFFFF', border: 'none', borderRadius: '6px', fontSize: '11px', fontWeight: '800', cursor: 'pointer' },
+  userRightActionRow: { display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', alignItems: 'stretch', gap: '8px', width: '100%' },
+  userModerationActions: { display: 'contents' },
+  btnViewUser: { minHeight: '40px', padding: '9px 10px', backgroundColor: '#0F766E', color: '#FFFFFF', border: 'none', borderRadius: '6px', fontSize: '11px', fontWeight: '800', cursor: 'pointer' },
   btnWarn: { padding: '7px 10px', backgroundColor: '#D97706', color: '#FFFFFF', border: 'none', borderRadius: '6px', fontSize: '11px', fontWeight: '800', cursor: 'pointer' },
   btnBan: { padding: '7px 10px', backgroundColor: '#DC2626', color: '#FFFFFF', border: 'none', borderRadius: '6px', fontSize: '11px', fontWeight: '800', cursor: 'pointer' },
-  btnApproveUser: { padding: '7px 10px', backgroundColor: '#15803D', color: '#FFFFFF', border: 'none', borderRadius: '6px', fontSize: '11px', fontWeight: '800', cursor: 'pointer' },
-  btnRejectUser: { padding: '7px 10px', backgroundColor: '#DC2626', color: '#FFFFFF', border: 'none', borderRadius: '6px', fontSize: '11px', fontWeight: '800', cursor: 'pointer' },
+  btnApproveUser: { minHeight: '40px', padding: '9px 10px', backgroundColor: '#15803D', color: '#FFFFFF', border: 'none', borderRadius: '6px', fontSize: '11px', fontWeight: '800', cursor: 'pointer' },
+  btnRejectUser: { minHeight: '40px', padding: '9px 10px', backgroundColor: '#DC2626', color: '#FFFFFF', border: 'none', borderRadius: '6px', fontSize: '11px', fontWeight: '800', cursor: 'pointer' },
   verificationCard: { display: 'flex', flexDirection: 'column', gap: '8px', backgroundColor: '#FFFFFF', border: '1px solid #CBD5E1', borderRadius: '12px', padding: '16px' },
   userRequestName: { fontSize: '15px', fontWeight: '700', color: '#0F766E', margin: 0 },
   idPhotoContainer: { margin: '8px 0' },
@@ -3060,10 +3166,10 @@ const styles = {
   userDetailsItem: { display: 'flex', flexDirection: 'column', gap: '2px', paddingBottom: '7px', borderBottom: '1px solid #E2E8F0' },
   userDetailsLabel: { color: '#64748B', fontSize: '11px', fontWeight: '700', lineHeight: '1.35' },
   userDetailsValue: { color: '#000000', fontSize: '12px', lineHeight: '1.45', overflowWrap: 'anywhere', whiteSpace: 'pre-wrap' },
-  userReportsSection: { marginTop: '14px' },
+  userReportsSection: { marginTop: '14px', padding: '14px', backgroundColor: '#F8FAFC', border: '1px solid #CBD5E1', borderRadius: '12px', maxHeight: '520px', overflowY: 'auto' },
   userReportsSectionTitle: { color: '#0F766E', fontSize: '13px', fontWeight: '700', marginBottom: '8px' },
   userReportEmpty: { padding: '8px 0', color: '#64748B', fontSize: '12px' },
-  userReportCard: { display: 'flex', flexDirection: 'column', gap: '8px', padding: '12px 0', marginTop: '6px', borderBottom: '1px solid #CBD5E1' },
+  userReportCard: { display: 'flex', flexDirection: 'column', gap: '8px', padding: '12px', marginTop: '8px', backgroundColor: '#FFFFFF', border: '1px solid #CBD5E1', borderRadius: '10px' },
   userReportToggle: { display: 'flex', flexDirection: 'column', alignItems: 'stretch', gap: '5px', width: '100%', padding: 0, border: 'none', background: 'transparent', color: 'inherit', fontFamily: "'Inter', sans-serif", textAlign: 'left', cursor: 'pointer' },
   userReportToggleHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '6px' },
   userReportToggleHint: { color: '#0F766E', fontSize: '11px', fontWeight: '700' },
@@ -3125,7 +3231,14 @@ const styles = {
   sigTitle: { fontSize: '8px', color: '#64748B' },
   resolvedSubTicketCard: { backgroundColor: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: '8px', padding: '10px', marginTop: '6px' },
   modalOverlay: { position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(15, 23, 42, 0.75)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000, padding: '20px' },
-  modalContent: { backgroundColor: '#FFFFFF', borderRadius: '14px', padding: '14px', maxWidth: '400px', width: '100%', textAlign: 'center' },
+  modalBackdrop: { position: 'fixed', inset: 0, zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px', backgroundColor: 'rgba(15, 23, 42, 0.68)', backdropFilter: 'blur(3px)', overflowY: 'auto' },
+  modalContent: { backgroundColor: '#FFFFFF', border: '1px solid #E2E8F0', borderRadius: '16px', padding: '20px', maxWidth: '400px', maxHeight: 'calc(100vh - 32px)', overflowY: 'auto', width: '100%', boxShadow: '0 24px 60px rgba(15, 23, 42, 0.25)', textAlign: 'center', boxSizing: 'border-box' },
+  modalHeader: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', marginBottom: '8px' },
+  modalTitle: { color: '#0F172A', fontSize: '17px', fontWeight: '800' },
+  modalSubtext: { margin: '0 0 14px', color: '#64748B', fontSize: '11px', lineHeight: '1.5', overflowWrap: 'anywhere' },
+  closeBtn: { flex: '0 0 auto', width: '32px', height: '32px', backgroundColor: '#F1F5F9', border: '1px solid #E2E8F0', borderRadius: '8px', color: '#475569', fontSize: '14px', cursor: 'pointer' },
+  modalBtnRow: { display: 'flex', justifyContent: 'flex-end', flexWrap: 'wrap', gap: '8px', marginTop: '16px' },
+  cancelBtn: { minHeight: '40px', padding: '9px 14px', backgroundColor: '#F1F5F9', border: '1px solid #CBD5E1', borderRadius: '7px', color: '#334155', fontSize: '12px', fontWeight: '700', cursor: 'pointer' },
   photoPreviewOverlay: { position: 'fixed', inset: 0, backgroundColor: 'rgba(2, 6, 23, 0.92)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1100, padding: '12px' },
   photoPreviewModal: { display: 'flex', flexDirection: 'column', gap: '10px', backgroundColor: '#0F172A', border: '1px solid #334155', borderRadius: '14px', padding: '12px', maxWidth: '1000px', maxHeight: '92vh', width: '100%', boxSizing: 'border-box' },
   photoPreviewHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px' },

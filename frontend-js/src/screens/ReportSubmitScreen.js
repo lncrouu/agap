@@ -6,7 +6,7 @@ import { getModerationRestriction } from '../utils/moderation';
 
 export default function ReportSubmitScreen({ onBack, onSubmitSuccess, userProfile }) {
   const [hazardTitle, setHazardTitle] = useState('');
-  const [severityLevel, setSeverityLevel] = useState('HIGH');
+  const [severityLevel, setSeverityLevel] = useState('');
   const [locationName, setLocationName] = useState('');
   const [latitude, setLatitude] = useState(13.7565);
   const [longitude, setLongitude] = useState(121.0583);
@@ -138,9 +138,20 @@ export default function ReportSubmitScreen({ onBack, onSubmitSuccess, userProfil
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (submissionRestriction) return showMessage(submissionRestriction.message, 'error');
-    if (!hazardTitle.trim()) return showMessage('Please specify the hazard or issue title.', 'error');
-    if (!locationName.trim()) return showMessage('Please specify or pin the location landmark.', 'error');
-    if (photosList.length === 0) return showMessage('Photo evidence is required. Attach at least one photo before submitting your report.', 'error');
+
+    const missingFields = [];
+    if (!hazardTitle.trim()) missingFields.push('Enter a hazard or issue title.');
+    if (!severityLevel) missingFields.push('Choose a severity level.');
+    if (!locationName.trim()) missingFields.push('Enter a location or pin the reported place on the map.');
+    if (photosList.length === 0) missingFields.push('Attach at least one photo as evidence.');
+    if (!description.trim()) missingFields.push('Enter a brief description of the situation.');
+    if (missingFields.length > 0) {
+      return showMessage(
+        `Please complete the required fields:\n${missingFields.map((message) => `• ${message}`).join('\n')}`,
+        'error',
+        'Required information missing'
+      );
+    }
 
     setIsSubmitting(true);
     try {
@@ -154,11 +165,11 @@ export default function ReportSubmitScreen({ onBack, onSubmitSuccess, userProfil
         id: ticketNo,
         ticket_no: ticketNo,
         category: '',
-        hazard_type: hazardTitle,
+        hazard_type: hazardTitle.trim(),
         severity: severityLevel,
-        location: locationName,
+        location: locationName.trim(),
         coordinates: `${latitude}, ${longitude}`,
-        description,
+        description: description.trim(),
         status: 'PENDING',
         device_id: localDeviceId,
         proof_photos: photoPayload,
@@ -192,7 +203,7 @@ export default function ReportSubmitScreen({ onBack, onSubmitSuccess, userProfil
           <button type="button" style={styles.restrictionButton} onClick={onBack}>Return to Dashboard</button>
         </div>
       ) : (
-      <form onSubmit={handleSubmit} style={styles.formCard}>
+      <form onSubmit={handleSubmit} style={styles.formCard} noValidate>
         <div style={styles.formGroup}>
           <label style={styles.label}>1. HAZARD / ISSUE TITLE *</label>
           <input
@@ -201,7 +212,6 @@ export default function ReportSubmitScreen({ onBack, onSubmitSuccess, userProfil
             placeholder="e.g. Flash Flooding at Rizal Ave, Fallen Electric Pole..."
             value={hazardTitle}
             onChange={(e) => setHazardTitle(e.target.value)}
-            required
           />
         </div>
 
@@ -234,7 +244,6 @@ export default function ReportSubmitScreen({ onBack, onSubmitSuccess, userProfil
             value={locationName}
             onChange={(e) => setLocationName(e.target.value)}
             placeholder="Landmark / Street Address..."
-            required
           />
           <div style={styles.mapBox}>
             <div ref={mapContainerRef} style={{ width: '100%', height: '170px' }}></div>
@@ -248,19 +257,34 @@ export default function ReportSubmitScreen({ onBack, onSubmitSuccess, userProfil
               {photosList.map((p) => (
                 <div key={p.id} style={styles.thumbCard}>
                   <img src={p.base64} alt="Thumb" style={styles.thumbImg} />
-                  <button type="button" style={styles.removeBtn} onClick={() => setPhotosList((prev) => prev.filter((item) => item.id !== p.id))}>✕</button>
+                  <button
+                    type="button"
+                    style={styles.removeBtn}
+                    onClick={() => {
+                      const remaining = photosList.filter((item) => item.id !== p.id);
+                      setPhotosList(remaining);
+                    }}
+                  >
+                    ✕
+                  </button>
                 </div>
               ))}
             </div>
           )}
           <label style={styles.dropzone}>
             <span style={styles.dropText}>+ Upload 1 or More Photos</span>
-            <input type="file" accept="image/*" multiple onChange={handlePhotoUpload} style={{ display: 'none' }} />
+            <input
+              type="file"
+              accept="image/*"
+              multiple
+              onChange={handlePhotoUpload}
+              style={{ display: 'none' }}
+            />
           </label>
         </div>
 
         <div style={styles.formGroup}>
-          <label style={styles.label}>5. REMARKS & SITUATION DETAILS</label>
+          <label style={styles.label}>5. REMARKS & SITUATION DETAILS *</label>
           <textarea
             style={styles.textarea}
             rows="3"

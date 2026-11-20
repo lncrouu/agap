@@ -1,6 +1,6 @@
 const USERNAME_PATTERN = /^[A-Za-z0-9](?:[A-Za-z0-9._]{1,22}[A-Za-z0-9])$/;
 const FULL_NAME_PATTERN = /^[\p{L}][\p{L} .'-]*[\p{L}.]$/u;
-export const VERIFICATION_COOLDOWN_MS = 7 * 24 * 60 * 60 * 1000;
+export const VERIFICATION_COOLDOWN_MS = 3 * 24 * 60 * 60 * 1000;
 
 export function getVerificationResubmissionAt(rejectedAt) {
   if (!rejectedAt) return null;
