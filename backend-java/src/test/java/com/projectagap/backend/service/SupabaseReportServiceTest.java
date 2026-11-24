@@ -30,9 +30,18 @@ class SupabaseReportServiceTest {
                 .andExpect(method(HttpMethod.POST))
                 .andExpect(header("apikey", "anon-test-key"))
                 .andExpect(header("Authorization", "Bearer anon-test-key"))
+                .andExpect(jsonPath("$.id").value("#AGAP-2026-0001"))
+                .andExpect(jsonPath("$.ticket_no").value("#AGAP-2026-0001"))
                 .andExpect(jsonPath("$.category").value(""))
+                .andExpect(jsonPath("$.hazard_type").value("Flooding"))
+                .andExpect(jsonPath("$.severity").value("HIGH"))
+                .andExpect(jsonPath("$.location").value("Rizal Avenue"))
+                .andExpect(jsonPath("$.coordinates").value("13.75,121.06"))
+                .andExpect(jsonPath("$.description").value("Road flooding"))
                 .andExpect(jsonPath("$.status").value("PENDING"))
+                .andExpect(jsonPath("$.device_id").value("GUEST-1"))
                 .andExpect(jsonPath("$.proof_photos").value("[\"photo\"]"))
+                .andExpect(jsonPath("$.photos").value("[\"photo\"]"))
                 .andRespond(withStatus(HttpStatus.CREATED));
 
         String ticketNo = service.submitReport(validRequest(), null);
@@ -83,6 +92,17 @@ class SupabaseReportServiceTest {
 
         assertThrows(IllegalArgumentException.class, () -> service.submitReport(request, null));
         server.verify();
+    }
+
+    @Test
+    void submitReportRejectsAuthorizationThatDoesNotUseBearerScheme() {
+        SupabaseReportService service = new SupabaseReportService(
+                new RestTemplate(),
+                "https://agap-test.supabase.co",
+                "anon-test-key");
+
+        assertThrows(IllegalArgumentException.class,
+                () -> service.submitReport(validRequest(), "Basic credentials"));
     }
 
     private static ReportSubmissionRequest validRequest() {

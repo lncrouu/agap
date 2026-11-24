@@ -58,22 +58,33 @@ The app also supports guests who do not need to create an account, while encoura
 
 ## Team Members and Roles
 
-| Member | GitHub | Primary contribution area |
-|---|---|---|
-| Lance Rougil Bulanhagui | [@lncrouu](https://github.com/lncrouu) | Full-stack development and project implementation |
-| Ricie Bulanhagui | [@riciebulanhagui](https://github.com/riciebulanhagui) | Frontend, UI, and application development |
-
-Team roles and responsibilities may be expanded and finalized during project presentation.
+| Member | Primary contribution area |
+|---|---|
+| Lance Bulanhagui | Frontend development |
+| Nathan Canteras | Backend development |
+| Nixie Evangelista | UI design and documentation |
 
 ## OOP Concepts Used
 
-- **Encapsulation:** Java domain classes such as `IncidentReport` and `UserProfile` keep fields private and expose controlled getters and setters.
-- **Abstraction:** `SmsGatewayClient` defines the SMS sending contract, while `ReportService` and `SupabaseReportService` separate report behavior and storage implementations.
-- **Polymorphism:** Spring injects implementations behind service and client interfaces. Notification behavior can change without changing the notification controller.
+- **Encapsulation:** `IncidentReport` and `UserProfile` keep their fields private and expose access through methods. Submission and Supabase payloads use typed records rather than unstructured data maps.
+- **Abstraction:** `SmsGatewayClient` defines the SMS gateway contract without coupling notification rules to a specific provider.
+- **Polymorphism:** `ReportNotificationService` uses the injected `SmsGatewayClient` contract, so a gateway implementation can be substituted without changing notification-routing logic.
+- **Inheritance:** `ReportValidationException` and `BackendConfigurationException` extend standard Java exception types, preserving familiar exception behavior while allowing the API to handle each failure category explicitly.
 - **Composition:** `ReportNotificationService` contains an `SmsGatewayClient`; `ReportSubmissionController` contains a `SupabaseReportService`.
 - **Enumerations:** `VerificationStatus` and `NotificationStatus` represent fixed verification and notification states.
 - **Separation of concerns:** React screens handle presentation, service modules handle data operations, Spring controllers handle HTTP requests, and model/service classes handle application rules.
 - **Information hiding:** Public REST endpoints expose only the required request and response data rather than directly exposing internal database details.
+
+## Java Rubric Evidence
+
+| Rubric area | Implementation evidence |
+|---|---|
+| OOP four pillars | Private domain fields, the `SmsGatewayClient` abstraction, injected client polymorphism, and typed exception inheritance (see `backend-java/src/main/java/com/projectagap/backend/`). |
+| Java syntax and program structure | Java 17 Spring Boot application entry point in `AgapBackendApplication.java`; typed Java records are used for request and response data. |
+| Control flow and data handling | `ReportNotificationService` routes by verification state; `SupabaseReportService` validates and maps submissions to a typed Supabase payload with a pending status. |
+| Methods and modularization | Controllers handle HTTP, services contain application logic, clients define external integration, and models carry typed data. |
+| Input validation and exception handling | Required report fields and authorization are validated in `SupabaseReportService`; `ReportSubmissionController` maps validation, configuration, and Supabase errors to the existing HTTP response codes. |
+| Code quality and readability | Focused classes, descriptive names, explicit constructor injection, and tests for payload mapping, validation, and API responses. |
 
 ## Instructions for Running the Program
 

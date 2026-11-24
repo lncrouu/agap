@@ -1,6 +1,9 @@
 package com.projectagap.backend.service;
 
+import com.projectagap.backend.exception.BackendConfigurationException;
+import com.projectagap.backend.exception.ReportValidationException;
 import com.projectagap.backend.model.ReportSubmissionRequest;
+import com.projectagap.backend.model.SupabaseReportPayload;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
@@ -8,9 +11,6 @@ import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
-
-import java.util.LinkedHashMap;
-import java.util.Map;
 
 @Service
 public class SupabaseReportService {
@@ -31,12 +31,12 @@ public class SupabaseReportService {
     public String submitReport(ReportSubmissionRequest request, String authorization) {
         validateConfiguration();
         if (request == null) {
-            throw new IllegalArgumentException("Report submission is required.");
+            throw new ReportValidationException("Report submission is required.");
         }
 
         String ticketNo = firstNonBlank(request.ticketNo(), request.id());
         if (ticketNo == null) {
-            throw new IllegalArgumentException("Ticket number is required.");
+            throw new ReportValidationException("Ticket number is required.");
         }
         requireText(request.hazardType(), "Hazard or issue title is required.");
         requireText(request.location(), "Location is required.");
@@ -45,19 +45,19 @@ public class SupabaseReportService {
         String proofPhotos = firstNonBlank(request.proofPhotos(), request.photos());
         requireText(proofPhotos, "At least one proof photo is required.");
 
-        Map<String, Object> row = new LinkedHashMap<>();
-        row.put("id", firstNonBlank(request.id(), ticketNo));
-        row.put("ticket_no", ticketNo);
-        row.put("category", "");
-        row.put("hazard_type", request.hazardType().trim());
-        row.put("severity", request.severity());
-        row.put("location", request.location().trim());
-        row.put("coordinates", request.coordinates());
-        row.put("description", request.description());
-        row.put("status", "PENDING");
-        row.put("device_id", request.deviceId().trim());
-        row.put("proof_photos", proofPhotos);
-        row.put("photos", proofPhotos);
+        SupabaseReportPayload payload = new SupabaseReportPayload(
+                firstNonBlank(request.id(), ticketNo),
+                ticketNo,
+                "",
+                request.hazardType().trim(),
+                request.severity(),
+                request.location().trim(),
+                request.coordinates(),
+                request.description(),
+                "PENDING",
+                request.deviceId().trim(),
+                proofPhotos,
+                proofPhotos);
 
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
@@ -68,7 +68,7 @@ public class SupabaseReportService {
         restTemplate.exchange(
                 supabaseUrl + "/rest/v1/reports",
                 HttpMethod.POST,
-                new HttpEntity<>(row, headers),
+                new HttpEntity<>(payload, headers),
                 Void.class);
 
         return ticketNo;
@@ -79,14 +79,15 @@ public class SupabaseReportService {
             return "Bearer " + supabaseAnonKey;
         }
         if (!authorization.regionMatches(true, 0, "Bearer ", 0, 7)) {
-            throw new IllegalArgumentException("Authorization must use the Bearer scheme.");
+            throw new ReportValidationException("Authorization must use the Bearer scheme.");
         }
         return authorization;
     }
 
     private void validateConfiguration() {
         if (supabaseUrl.isBlank() || supabaseAnonKey.isBlank()) {
-            throw new IllegalStateException("Supabase URL and anon key must be configured for the Java backend.");
+            throw new BackendConfigurationException(
+                    "Supabase URL and anon key must be configured for the Java backend.");
         }
     }
 
@@ -102,7 +103,7 @@ public class SupabaseReportService {
 
     private static void requireText(String value, String message) {
         if (value == null || value.isBlank()) {
-            throw new IllegalArgumentException(message);
+            throw new ReportValidationException(message);
         }
     }
 }
