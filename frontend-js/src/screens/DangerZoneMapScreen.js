@@ -11,9 +11,11 @@ export default function DangerZoneMapScreen({ onBack, userProfile }) {
   const [userGps, setUserGps] = useState({ lat: 13.7565, lng: 121.0583 });
   const [inspectImage, setInspectImage] = useState(null);
   const [dialog, setDialog] = useState(null);
+  const [mapReady, setMapReady] = useState(false);
   const mapContainerRef = useRef(null);
   const mapInstanceRef = useRef(null);
   const markersRef = useRef({});
+  const userMarkerRef = useRef(null);
   const mapRestriction = getModerationRestriction(userProfile);
 
   useEffect(() => {
@@ -103,6 +105,8 @@ export default function DangerZoneMapScreen({ onBack, userProfile }) {
     : activeHazards.filter((h) => (h.severity || '').toUpperCase() === selectedFilter || (h.category || '').toUpperCase().includes(selectedFilter));
 
   useEffect(() => {
+    let cancelled = false;
+
     const loadLeaflet = () => {
       if (!document.getElementById('leaflet-css')) {
         const link = document.createElement('link');
@@ -112,9 +116,26 @@ export default function DangerZoneMapScreen({ onBack, userProfile }) {
         document.head.appendChild(link);
       }
       if (!window.L) {
+        const existingScript = document.getElementById('leaflet-js');
+        if (existingScript) {
+          existingScript.addEventListener('load', initMap, { once: true });
+          return;
+        }
+
         const script = document.createElement('script');
+        script.id = 'leaflet-js';
         script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
         script.onload = initMap;
+        script.onerror = () => {
+          script.remove();
+          if (cancelled) return;
+          setDialog({
+            type: 'message',
+            tone: 'error',
+            title: 'Map unavailable',
+            message: 'Could not load the map. Check your internet connection and try again.'
+          });
+        };
         document.head.appendChild(script);
       } else {
         initMap();
@@ -122,60 +143,81 @@ export default function DangerZoneMapScreen({ onBack, userProfile }) {
     };
 
     const initMap = () => {
-      if (!mapContainerRef.current || mapInstanceRef.current) return;
+      if (cancelled || !mapContainerRef.current || mapInstanceRef.current) return;
       const L = window.L;
-      const map = L.map(mapContainerRef.current).setView([userGps.lat, userGps.lng], 14);
+      const map = L.map(mapContainerRef.current).setView([13.7565, 121.0583], 14);
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '&copy; OpenStreetMap' }).addTo(map);
 
-      // User location green pin
-      const greenIcon = L.divIcon({
-        className: 'custom-pin-green',
-        html: `<div style="background-color: #166534; width: 18px; height: 18px; border-radius: 50%; border: 3px solid #FFFFFF; box-shadow: 0 2px 6px rgba(0,0,0,0.4);"></div>`,
-        iconSize: [20, 20],
-        iconAnchor: [10, 10]
-      });
-
-      L.marker([userGps.lat, userGps.lng], { icon: greenIcon })
-        .addTo(map)
-        .bindPopup('<strong>Your Live GPS Position</strong>');
-
-      // Hazard red pins
-      const redIcon = L.divIcon({
-        className: 'custom-pin-red',
-        html: `<div style="background-color: #DC2626; width: 18px; height: 18px; border-radius: 50%; border: 3px solid #FFFFFF; box-shadow: 0 2px 6px rgba(0,0,0,0.4);"></div>`,
-        iconSize: [20, 20],
-        iconAnchor: [10, 10]
-      });
-
-      activeHazards.forEach((haz) => {
-        if (haz.coordinates) {
-          const parts = haz.coordinates.split(',').map((s) => parseFloat(s.trim()));
-          if (parts.length === 2 && !isNaN(parts[0]) && !isNaN(parts[1])) {
-            const m = L.marker([parts[0], parts[1]], { icon: redIcon })
-              .addTo(map)
-              .bindPopup(`<strong>${haz.hazard_type || haz.category}</strong><br/>Ref: ${haz.id || haz.ticket_no}<br/>Severity: ${haz.severity || 'HIGH'}`);
-
-            m.on('click', () => {
-              handleSelectPin(haz);
-            });
-
-            markersRef.current[haz.id] = m;
-          }
-        }
-      });
-
       mapInstanceRef.current = map;
+      setMapReady(true);
     };
 
     loadLeaflet();
 
     return () => {
+      cancelled = true;
       if (mapInstanceRef.current) {
         mapInstanceRef.current.remove();
         mapInstanceRef.current = null;
+        userMarkerRef.current = null;
+        markersRef.current = {};
       }
     };
-  }, [activeHazards, userGps]);
+  }, []);
+
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    const L = window.L;
+    if (!mapReady || !map || !L) return;
+
+    const greenIcon = L.divIcon({
+      className: 'custom-pin-green',
+      html: `<div style="background-color: #166534; width: 18px; height: 18px; border-radius: 50%; border: 3px solid #FFFFFF; box-shadow: 0 2px 6px rgba(0,0,0,0.4);"></div>`,
+      iconSize: [20, 20],
+      iconAnchor: [10, 10]
+    });
+
+    if (!userMarkerRef.current) {
+      userMarkerRef.current = L.marker([userGps.lat, userGps.lng], { icon: greenIcon })
+        .addTo(map)
+        .bindPopup('<strong>Your Live GPS Position</strong>');
+    } else {
+      userMarkerRef.current.setLatLng([userGps.lat, userGps.lng]);
+    }
+  }, [mapReady, userGps]);
+
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    const L = window.L;
+    if (!mapReady || !map || !L) return;
+
+    Object.values(markersRef.current).forEach((marker) => marker.remove());
+    markersRef.current = {};
+
+    const redIcon = L.divIcon({
+      className: 'custom-pin-red',
+      html: `<div style="background-color: #DC2626; width: 18px; height: 18px; border-radius: 50%; border: 3px solid #FFFFFF; box-shadow: 0 2px 6px rgba(0,0,0,0.4);"></div>`,
+      iconSize: [20, 20],
+      iconAnchor: [10, 10]
+    });
+
+    activeHazards.forEach((haz) => {
+      if (haz.coordinates) {
+        const parts = haz.coordinates.split(',').map((s) => parseFloat(s.trim()));
+        if (parts.length === 2 && !isNaN(parts[0]) && !isNaN(parts[1])) {
+          const marker = L.marker([parts[0], parts[1]], { icon: redIcon })
+            .addTo(map)
+            .bindPopup(`<strong>${haz.hazard_type || haz.category}</strong><br/>Ref: ${haz.id || haz.ticket_no}<br/>Severity: ${haz.severity || 'HIGH'}`);
+
+          marker.on('click', () => {
+            handleSelectPin(haz);
+          });
+
+          markersRef.current[haz.id] = marker;
+        }
+      }
+    });
+  }, [activeHazards, mapReady]);
 
   const handleSelectPin = (item) => {
     setActivePinId(item.id);
