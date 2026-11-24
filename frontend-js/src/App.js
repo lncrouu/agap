@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from './supabaseClient';
 import ActionDialog from './components/ActionDialog';
+import BanAppealPanel from './components/BanAppealPanel';
 import LandingScreen from './screens/LandingScreen';
 import DashboardScreen from './screens/DashboardScreen';
 import ReportSubmitScreen from './screens/ReportSubmitScreen';
@@ -161,11 +162,11 @@ export default function App() {
 
   const handleNavigate = (screenKey) => {
     const restriction = getModerationRestriction(userProfile);
-    if (screenKey === 'submit-report' && restriction?.kind === 'BANNED') {
+    if (screenKey === 'submit-report' && restriction) {
       setAppDialog({
         type: 'message',
-        tone: 'error',
-        title: 'Access restricted',
+        tone: restriction.kind === 'BANNED' ? 'error' : 'warning',
+        title: restriction.kind === 'BANNED' ? 'Access restricted' : 'Report submission paused',
         message: restriction.message
       });
       return;
@@ -217,11 +218,12 @@ export default function App() {
           <div style={styles.splashContainer}>
             <div style={styles.radarPulseRing}></div>
             <div style={styles.shieldLogoBox}>
-              <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#CCFBF1" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
-                <path d="M12 8v4"/>
-                <path d="M12 16h.01"/>
-              </svg>
+              <img
+                src={`${process.env.PUBLIC_URL}/icons/agap-logo.svg`}
+                alt="Project AGAP shield"
+                width="48"
+                height="48"
+              />
             </div>
             <h1 style={styles.splashTitle}>PROJECT AGAP</h1>
             <p style={styles.splashTagline}>Active Guardianship & Alert Protocol</p>
@@ -234,6 +236,7 @@ export default function App() {
             <h1 style={styles.banLockTitle}>This device is banned</h1>
             <p style={styles.banLockMessage}>{accessRestriction.message}</p>
             <div style={styles.banLockFooter}>This screen will remain until the ban is lifted by an administrator.</div>
+            <BanAppealPanel userProfile={userProfile} />
           </div>
         ) : (
           <>
@@ -248,6 +251,7 @@ export default function App() {
               <DashboardScreen
                 onNavigate={handleNavigate}
                 userRole={userRole}
+                reportRestriction={accessRestriction?.kind === 'PENALIZED' ? accessRestriction : null}
                 onOpenProfile={() => setCurrentScreen('profile')}
               />
             )}

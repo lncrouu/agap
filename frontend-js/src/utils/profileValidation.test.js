@@ -1,13 +1,15 @@
 import {
+  getUsernameChangeAvailableAt,
   getVerificationResubmissionAt,
   normalizePhilippineMobileNumber,
   validateResidentProfile,
+  validateUsername,
+  USERNAME_COOLDOWN_MS,
   VERIFICATION_COOLDOWN_MS
 } from './profileValidation';
 
 describe('resident profile validation', () => {
   const validProfile = {
-    username: 'BatangasUser01',
     fullName: 'Maria Dela Cruz',
     phone: '0917 123 4567',
     barangay: 'Brgy. Alangilan',
@@ -30,23 +32,36 @@ describe('resident profile validation', () => {
   });
 
   test.each([
-    [{ ...validProfile, username: 'bad name' }, /Username/],
     [{ ...validProfile, fullName: 'Maria Cruz9' }, /full legal name/],
+    [{ ...validProfile, fullName: ' ' }, /full legal name/],
     [{ ...validProfile, phone: '12345' }, /Philippine mobile number/],
+    [{ ...validProfile, barangay: '' }, /barangay or residency location/],
     [{ ...validProfile, idProofPhoto: '' }, /proof of Batangas residency/]
   ])('rejects invalid profile data', (profile, expectedError) => {
     expect(validateResidentProfile(profile).error).toMatch(expectedError);
   });
 
-  test('calculates the next verification date as three days after rejection', () => {
+  test('calculates the next verification date as 24 hours after rejection', () => {
     const rejectedAt = '2026-11-17T10:00:00.000Z';
 
     expect(getVerificationResubmissionAt(rejectedAt).getTime())
       .toBe(Date.parse(rejectedAt) + VERIFICATION_COOLDOWN_MS);
   });
 
+  test('validates usernames separately and calculates the seven-day edit cooldown', () => {
+    expect(validateUsername('  BatangasUser01  ')).toEqual({ error: null, value: 'BatangasUser01' });
+    expect(validateUsername('bad name').error).toMatch(/Username/);
+    expect(validateResidentProfile(validProfile).values).not.toHaveProperty('username');
+
+    const updatedAt = '2026-11-17T10:00:00.000Z';
+    expect(getUsernameChangeAvailableAt(updatedAt).getTime())
+      .toBe(Date.parse(updatedAt) + USERNAME_COOLDOWN_MS);
+  });
+
   test('returns no cooldown date when the rejection timestamp is missing or invalid', () => {
     expect(getVerificationResubmissionAt(null)).toBeNull();
     expect(getVerificationResubmissionAt('not-a-date')).toBeNull();
+    expect(getUsernameChangeAvailableAt(null)).toBeNull();
+    expect(getUsernameChangeAvailableAt('not-a-date')).toBeNull();
   });
 });

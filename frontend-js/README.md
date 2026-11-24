@@ -63,10 +63,21 @@ before launching the app again. If the computer's Wi-Fi IP changes, update
 The normal `npm run android:sync` uses the default Capacitor configuration,
 which does not enable the local HTTP scheme.
 
-## Apply Supabase moderation migration
+## Supabase SQL setup
 
-Before using user penalties or bans, run
-`supabase/migrations/20261117_profile_moderation.sql` in the Supabase SQL Editor.
-It adds the moderation fields and responder evidence fields, then blocks report
-inserts for banned devices and devices with an active reporting penalty. It also
-enforces a seven-day cooldown after a resident verification request is rejected.
+The consolidated SQL setup is in [`../supabase/AGAP_queries.sql`](../supabase/AGAP_queries.sql).
+Run the file once in the Supabase SQL Editor after the
+`public.profiles` and `public.reports` tables exist. It adds moderation, appeal,
+responder evidence, and username fields and installs the related triggers.
+The final verification resubmission cooldown is 24 hours; username changes have
+a seven-day cooldown.
+
+The SQL file consolidates the former files in `supabase/migrations/`; it is not
+a Supabase CLI migration history. If the schema changes are already installed
+in a project, do not treat this file as a new deployment or reset its migration
+history.
+
+## User guide
+
+See the root-level [`../USER_GUIDE.md`](../USER_GUIDE.md) for user, administrator,
+and responder instructions.

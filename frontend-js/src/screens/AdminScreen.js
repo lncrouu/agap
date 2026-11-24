@@ -670,14 +670,19 @@ export default function AdminScreen({ onBack }) {
     const deviceId = user.device_id;
     if (!deviceId) return showMessage('This profile does not have a device ID.', 'error');
     const restoredStatus = user.moderation_previous_status || 'GUEST';
-    const restrictionName = (user.verification_status || '').toUpperCase() === 'BANNED' ? 'ban' : 'penalty';
+    const isBanned = (user.verification_status || '').toUpperCase() === 'BANNED';
+    const restrictionName = isBanned ? 'ban' : 'penalty';
     if (!(await confirmAction(`Lift the ${restrictionName} for ${user.username || deviceId} and restore their ${restoredStatus} account status?`))) return;
 
     const payload = {
       verification_status: restoredStatus,
       moderation_message: null,
       moderation_previous_status: null,
-      penalty_until: null
+      penalty_until: null,
+      ...(isBanned && user.ban_appeal_status === 'PENDING' ? {
+        ban_appeal_status: 'APPROVED',
+        ban_appeal_response: 'The ban was lifted by an administrator.'
+      } : {})
     };
     try {
       const { data: updatedProfile, error } = await supabase
@@ -694,6 +699,55 @@ export default function AdminScreen({ onBack }) {
       showMessage(`${restrictionName === 'ban' ? 'Ban' : 'Penalty'} lifted for ${user.username || deviceId}.`, 'success');
     } catch (err) {
       showMessage(`Could not lift moderation: ${err.message}`, 'error');
+    }
+  };
+
+  const handleReviewBanAppeal = async (user, approved) => {
+    const deviceId = user.device_id;
+    if (!deviceId) return showMessage('This appeal does not have a device ID.', 'error');
+    const action = approved ? 'approve the appeal and lift the ban for' : 'deny the appeal for';
+    if (!(await confirmAction(`Confirm that you want to ${action} ${user.username || deviceId}?`))) return;
+
+    const payload = approved
+      ? {
+        verification_status: user.moderation_previous_status || 'GUEST',
+        moderation_message: null,
+        moderation_previous_status: null,
+        penalty_until: null,
+        ban_appeal_status: 'APPROVED',
+        ban_appeal_response: 'Your appeal was approved and the ban has been lifted.'
+      }
+      : {
+        ban_appeal_status: 'DENIED',
+        ban_appeal_response: 'Your appeal was reviewed, but the ban remains active.'
+      };
+
+    setIsUpdatingModeration(true);
+    try {
+      const { data: updatedProfile, error } = await supabase
+        .from('profiles')
+        .update(payload)
+        .eq('device_id', deviceId)
+        .eq('verification_status', 'BANNED')
+        .eq('ban_appeal_status', 'PENDING')
+        .select('device_id')
+        .maybeSingle();
+      if (error) throw error;
+      if (!updatedProfile) throw new Error('This appeal is no longer pending or the device is no longer banned. Refresh the user list and try again.');
+
+      setProfiles((prev) => prev.map((profile) => (
+        profile.device_id === deviceId ? { ...profile, ...payload } : profile
+      )));
+      showMessage(
+        approved
+          ? `Appeal approved. The ban was lifted for ${user.username || deviceId}.`
+          : `Appeal denied for ${user.username || deviceId}. The ban remains active.`,
+        'success'
+      );
+    } catch (err) {
+      showMessage(`Could not review appeal: ${err.message}`, 'error');
+    } finally {
+      setIsUpdatingModeration(false);
     }
   };
 
@@ -930,6 +984,14 @@ Project AGAP Operations Portal                  Signature & Date / Time Received
   const moderatedUsers = profiles
     .filter((p) => ['PENALIZED', 'BANNED'].includes(getModerationRestriction(p)?.kind))
     .sort((a, b) => (a.username || a.device_id || '').localeCompare(b.username || b.device_id || ''));
+
+  const pendingBanAppeals = profiles
+    .filter((profile) => (
+      (profile.verification_status || '').toUpperCase() === 'BANNED'
+      && (profile.ban_appeal_status || '').toUpperCase() === 'PENDING'
+      && profile.ban_appeal
+    ))
+    .sort((a, b) => (b.ban_appeal_submitted_at || '').localeCompare(a.ban_appeal_submitted_at || ''));
 
   const pendingVerificationRequests = profiles
     .filter((p) => isPendingVerificationRequest(p))
@@ -1212,13 +1274,8 @@ Project AGAP Operations Portal                  Signature & Date / Time Received
             {/* Module 1: Submitted and Investigated Tickets */}
             <div style={styles.tableRow} onClick={() => setCurrentView('SUBMITTED_REPORTS')}>
               <div style={styles.tableColIcon}>
-                <div style={styles.iconBoxAmber}>
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#D97706" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-                    <polyline points="14 2 14 8 20 8"/>
-                    <line x1="16" y1="13" x2="8" y2="13"/>
-                    <line x1="16" y1="17" x2="8" y2="17"/>
-                  </svg>
+                <div style={styles.iconBoxTeal}>
+                  <img src={`${process.env.PUBLIC_URL}/icons/admin-submitted.svg`} alt="" width="24" height="24" />
                 </div>
               </div>
               <div style={styles.tableColContent}>
@@ -1226,7 +1283,7 @@ Project AGAP Operations Portal                  Signature & Date / Time Received
                 <div style={styles.tableDesc}>Review new submissions and track field investigations</div>
               </div>
               <div style={styles.tableColBadge}>
-                <span style={styles.badgeOrange}>{submittedQueueReports.length} Submitted</span>
+                <span style={styles.badgeGreen}>{submittedQueueReports.length} Submitted</span>
               </div>
             </div>
 
@@ -1234,11 +1291,7 @@ Project AGAP Operations Portal                  Signature & Date / Time Received
             <div style={styles.tableRow} onClick={() => setCurrentView('ACTIVE_OPERATIONS')}>
               <div style={styles.tableColIcon}>
                 <div style={styles.iconBoxTeal}>
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#0F766E" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <polygon points="12 2 2 7 12 12 22 7 12 2"/>
-                    <polyline points="2 17 12 22 22 17"/>
-                    <polyline points="2 12 12 17 22 12"/>
-                  </svg>
+                  <img src={`${process.env.PUBLIC_URL}/icons/admin-operations.svg`} alt="" width="24" height="24" />
                 </div>
               </div>
               <div style={styles.tableColContent}>
@@ -1246,20 +1299,15 @@ Project AGAP Operations Portal                  Signature & Date / Time Received
                 <div style={styles.tableDesc}>Track progress and broadcast category updates</div>
               </div>
               <div style={styles.tableColBadge}>
-                <span style={styles.badgeTeal}>{activeTrackerReports.length} Active</span>
+                <span style={styles.badgeGreen}>{activeTrackerReports.length} Active</span>
               </div>
             </div>
 
             {/* Module 3: User Management */}
             <div style={styles.tableRow} onClick={() => setCurrentView('USER_HANDLING')}>
               <div style={styles.tableColIcon}>
-                <div style={styles.iconBoxPurple}>
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#7C3AED" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
-                    <circle cx="9" cy="7" r="4"/>
-                    <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
-                    <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
-                  </svg>
+                <div style={styles.iconBoxTeal}>
+                  <img src={`${process.env.PUBLIC_URL}/icons/admin-users.svg`} alt="" width="24" height="24" />
                 </div>
               </div>
               <div style={styles.tableColContent}>
@@ -1267,19 +1315,15 @@ Project AGAP Operations Portal                  Signature & Date / Time Received
                 <div style={styles.tableDesc}>Directory, ID verification, DEV ID moderation & banning</div>
               </div>
               <div style={styles.tableColBadge}>
-                <span style={styles.badgeBlue}>{profiles.length} Accounts</span>
+                <span style={styles.badgeGreen}>{profiles.length} Accounts</span>
               </div>
             </div>
 
             {/* Module 4: Transmittal Memos */}
             <div style={styles.tableRow} onClick={() => setCurrentView('DOCUMENT_GENERATOR')}>
               <div style={styles.tableColIcon}>
-                <div style={styles.iconBoxEmerald}>
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#15803D" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-                    <polyline points="14 2 14 8 20 8"/>
-                    <path d="M9 15l2 2 4-4"/>
-                  </svg>
+                <div style={styles.iconBoxTeal}>
+                  <img src={`${process.env.PUBLIC_URL}/icons/admin-memo.svg`} alt="" width="24" height="24" />
                 </div>
               </div>
               <div style={styles.tableColContent}>
@@ -1294,11 +1338,8 @@ Project AGAP Operations Portal                  Signature & Date / Time Received
             {/* Module 5: Resolved Incident Archive */}
             <div style={styles.tableRowLast} onClick={() => setCurrentView('RESOLVED_ARCHIVE')}>
               <div style={styles.tableColIcon}>
-                <div style={styles.iconBoxSlate}>
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#0F766E" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
-                    <polyline points="22 4 12 14.01 9 11.01"/>
-                  </svg>
+                <div style={styles.iconBoxTeal}>
+                  <img src={`${process.env.PUBLIC_URL}/icons/admin-resolved.svg`} alt="" width="24" height="24" />
                 </div>
               </div>
               <div style={styles.tableColContent}>
@@ -1306,7 +1347,7 @@ Project AGAP Operations Portal                  Signature & Date / Time Received
                 <div style={styles.tableDesc}>Review resolved and rejected tickets with submitted details and evidence</div>
               </div>
               <div style={styles.tableColBadge}>
-                <span style={styles.badgeTeal}>{resolvedReports.length} Resolved</span>
+                <span style={styles.badgeGreen}>{resolvedReports.length} Resolved</span>
               </div>
             </div>
           </div>
@@ -2052,7 +2093,53 @@ Project AGAP Operations Portal                  Signature & Date / Time Received
             >
               Restricted Users ({moderatedUsers.length})
             </button>
+            <button
+              style={userSubTab === 'APPEALS' ? styles.subTabBtnActive : styles.subTabBtnInactive}
+              onClick={() => setUserSubTab('APPEALS')}
+            >
+              Ban Appeals ({pendingBanAppeals.length})
+            </button>
           </div>
+
+          {userSubTab === 'APPEALS' && (
+            <div style={styles.sectionStack}>
+              {pendingBanAppeals.length === 0 ? (
+                <div style={styles.emptyCard}>No ban appeals are waiting for review.</div>
+              ) : (
+                pendingBanAppeals.map((user) => (
+                  <div key={user.device_id} style={styles.appealReviewCard}>
+                    <div style={styles.appealReviewHeader}>
+                      <div>
+                        <div style={styles.userNameText}>{user.username || user.full_name || 'Device User'}</div>
+                        <div style={styles.userSummaryDevice}>Device ID: {user.device_id}</div>
+                      </div>
+                      <span style={styles.badgeOrange}>PENDING REVIEW</span>
+                    </div>
+                    <div style={styles.appealReviewDate}>
+                      Submitted {user.ban_appeal_submitted_at ? new Date(user.ban_appeal_submitted_at).toLocaleString() : 'date unavailable'}
+                    </div>
+                    <div style={styles.appealReviewMessage}>{user.ban_appeal}</div>
+                    <div style={styles.userModerationActions}>
+                      <button
+                        style={styles.btnApproveUser}
+                        onClick={() => handleReviewBanAppeal(user, true)}
+                        disabled={isUpdatingModeration}
+                      >
+                        Approve & Lift Ban
+                      </button>
+                      <button
+                        style={styles.btnRejectUser}
+                        onClick={() => handleReviewBanAppeal(user, false)}
+                        disabled={isUpdatingModeration}
+                      >
+                        Deny Appeal
+                      </button>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          )}
 
           {/* Sub-Tab 1: Verified Citizens */}
           {userSubTab === 'VERIFIED' && (
@@ -3018,11 +3105,7 @@ const styles = {
   tableRow: { display: 'grid', gridTemplateColumns: '36px minmax(0, 1fr) minmax(105px, max-content)', alignItems: 'center', gap: '12px', padding: '12px', borderBottom: '1px solid #F1F5F9', cursor: 'pointer' },
   tableRowLast: { display: 'grid', gridTemplateColumns: '36px minmax(0, 1fr) minmax(105px, max-content)', alignItems: 'center', gap: '12px', padding: '12px', cursor: 'pointer' },
   tableColIcon: { display: 'flex', alignItems: 'center', justifyContent: 'center' },
-  iconBoxAmber: { width: '36px', height: '36px', borderRadius: '8px', backgroundColor: '#FEF3C7', display: 'flex', alignItems: 'center', justifyContent: 'center' },
   iconBoxTeal: { width: '36px', height: '36px', borderRadius: '8px', backgroundColor: '#CCFBF1', display: 'flex', alignItems: 'center', justifyContent: 'center' },
-  iconBoxPurple: { width: '36px', height: '36px', borderRadius: '8px', backgroundColor: '#F3E8FF', display: 'flex', alignItems: 'center', justifyContent: 'center' },
-  iconBoxEmerald: { width: '36px', height: '36px', borderRadius: '8px', backgroundColor: '#DCFCE7', display: 'flex', alignItems: 'center', justifyContent: 'center' },
-  iconBoxSlate: { width: '36px', height: '36px', borderRadius: '8px', backgroundColor: '#E2E8F0', display: 'flex', alignItems: 'center', justifyContent: 'center' },
   tableColContent: { minWidth: 0 },
   tableTitle: { fontSize: '13px', fontWeight: '800', color: '#0F172A' },
   tableDesc: { fontSize: '10px', color: '#64748B', marginTop: '2px' },
@@ -3140,6 +3223,10 @@ const styles = {
   moduleIntroTitle: { fontSize: '18px', fontWeight: '800', color: '#0F172A', margin: '0 0 6px' },
   moduleIntroText: { fontSize: '13px', color: '#475569', lineHeight: '1.5', margin: 0 },
   userCardRow: { display: 'flex', flexDirection: 'column', alignItems: 'stretch', gap: '12px', backgroundColor: '#FFFFFF', border: '1px solid #CBD5E1', borderRadius: '12px', padding: '16px' },
+  appealReviewCard: { display: 'flex', flexDirection: 'column', gap: '11px', padding: '16px', backgroundColor: '#FFFFFF', border: '1px solid #CBD5E1', borderLeft: '4px solid #EA580C', borderRadius: '12px' },
+  appealReviewHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' },
+  appealReviewDate: { color: '#64748B', fontSize: '10px' },
+  appealReviewMessage: { padding: '12px', backgroundColor: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: '8px', color: '#334155', fontSize: '12px', lineHeight: '1.55', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' },
   userLeftBox: { display: 'flex', alignItems: 'flex-start', gap: '12px' },
   userIdentity: { flex: 1, minWidth: 0 },
   userIdentityTop: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px' },

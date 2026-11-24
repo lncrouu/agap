@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../supabaseClient';
 
-export default function DashboardScreen({ onNavigate, userRole = 'GUEST', onOpenProfile }) {
+export default function DashboardScreen({ onNavigate, userRole = 'GUEST', onOpenProfile, reportRestriction }) {
   const [userProfile, setUserProfile] = useState(null);
   const [showSosModal, setShowSosModal] = useState(false);
 
@@ -56,7 +56,15 @@ export default function DashboardScreen({ onNavigate, userRole = 'GUEST', onOpen
       <div style={styles.vibrantHeaderCard}>
         <div style={styles.headerTopRow}>
           <div>
-            <span style={styles.brandSub}>PROJECT AGAP BATANGAS</span>
+            <span style={styles.brandLine}>
+              <img
+                src={`${process.env.PUBLIC_URL}/icons/dashboard.svg`}
+                alt=""
+                width="16"
+                height="16"
+              />
+              <span style={styles.brandSub}>PROJECT AGAP BATANGAS</span>
+            </span>
             <h2 style={styles.greetingTitle}>
               Mabuhay, {getGreetingUsername()}
             </h2>
@@ -67,10 +75,7 @@ export default function DashboardScreen({ onNavigate, userRole = 'GUEST', onOpen
             onClick={onOpenProfile}
             title="Open Profile"
           >
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#0F766E" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
-              <circle cx="12" cy="7" r="4"/>
-            </svg>
+            <img src={`${process.env.PUBLIC_URL}/icons/profile.svg`} alt="" width="28" height="28" />
           </button>
         </div>
 
@@ -89,11 +94,7 @@ export default function DashboardScreen({ onNavigate, userRole = 'GUEST', onOpen
       <div style={styles.sosBanner}>
         <div style={styles.sosLeft}>
           <div style={styles.sosIconBox}>
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#DC2626" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 3-3.42 0z"/>
-              <line x1="12" y1="9" x2="12" y2="13"/>
-              <line x1="12" y1="17" x2="12.01" y2="17"/>
-            </svg>
+            <img src={`${process.env.PUBLIC_URL}/icons/emergency.svg`} alt="" width="28" height="28" />
           </div>
           <div>
             <div style={styles.sosTitle}>IMMEDIATE CRISIS LINE</div>
@@ -105,30 +106,40 @@ export default function DashboardScreen({ onNavigate, userRole = 'GUEST', onOpen
         </button>
       </div>
 
+      {reportRestriction && (
+        <div style={styles.penaltyNotice} role="status">
+          <strong>Report submissions are temporarily paused</strong>
+          <span>{reportRestriction.message}</span>
+          <span>You can still use the map, report tracker, and hotline directory.</span>
+        </div>
+      )}
+
       {/* Core Functions - 2x2 Grid with Horizontal Layout */}
       <div style={styles.sectionHeader}>Core Functions</div>
       <div style={styles.grid2x2}>
         {/* 1. Submit Hazard Report */}
-        <div style={styles.horizontalCardTeal} onClick={() => handleNav('submit-report')}>
+        <div
+          style={reportRestriction ? styles.horizontalCardRestricted : styles.horizontalCardTeal}
+          onClick={() => handleNav('submit-report')}
+          aria-disabled={Boolean(reportRestriction)}
+          title={reportRestriction ? 'Report submission is paused during your penalty' : undefined}
+        >
           <div style={styles.cardIconSquareTeal}>
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#0F766E" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
-              <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
-            </svg>
+            <img src={`${process.env.PUBLIC_URL}/icons/report.svg`} alt="" width="32" height="32" />
           </div>
           <div style={styles.cardContentRight}>
             <h3 style={styles.cardTitle}>Submit Hazard</h3>
             <p style={styles.cardDesc}>Report flooding, power lines, or road hazards.</p>
-            <span style={styles.cardActionText}>Report Now &rarr;</span>
+            <span style={reportRestriction ? styles.cardActionRestricted : styles.cardActionText}>
+              {reportRestriction ? 'Paused during penalty' : 'Report Now →'}
+            </span>
           </div>
         </div>
 
         {/* 2. Hotline Directory */}
         <div style={styles.horizontalCardWhite} onClick={() => handleNav('hotlines')}>
           <div style={styles.cardIconSquareGray}>
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#0F766E" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/>
-            </svg>
+            <img src={`${process.env.PUBLIC_URL}/icons/hotline.svg`} alt="" width="32" height="32" />
           </div>
           <div style={styles.cardContentRight}>
             <h3 style={styles.cardTitle}>Hotline Directory</h3>
@@ -140,11 +151,7 @@ export default function DashboardScreen({ onNavigate, userRole = 'GUEST', onOpen
         {/* 3. Danger Zone Map */}
         <div style={styles.horizontalCardWhite} onClick={() => handleNav('danger-map')}>
           <div style={styles.cardIconSquareGray}>
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#0F766E" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-              <polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"/>
-              <line x1="8" y1="2" x2="8" y2="18"/>
-              <line x1="16" y1="6" x2="16" y2="22"/>
-            </svg>
+            <img src={`${process.env.PUBLIC_URL}/icons/map.svg`} alt="" width="32" height="32" />
           </div>
           <div style={styles.cardContentRight}>
             <h3 style={styles.cardTitle}>Danger Zone Map</h3>
@@ -156,12 +163,7 @@ export default function DashboardScreen({ onNavigate, userRole = 'GUEST', onOpen
         {/* 4. Report Tracker */}
         <div style={styles.horizontalCardWhite} onClick={() => handleNav('tracker')}>
           <div style={styles.cardIconSquareGray}>
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#0F766E" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-              <polyline points="14 2 14 8 20 8"/>
-              <line x1="16" y1="13" x2="8" y2="13"/>
-              <line x1="16" y1="17" x2="8" y2="17"/>
-            </svg>
+            <img src={`${process.env.PUBLIC_URL}/icons/tracker.svg`} alt="" width="32" height="32" />
           </div>
           <div style={styles.cardContentRight}>
             <h3 style={styles.cardTitle}>Report Tracker</h3>
@@ -240,6 +242,7 @@ const styles = {
   container: { maxWidth: '440px', margin: '0 auto', padding: '16px', fontFamily: "'Inter', sans-serif", boxSizing: 'border-box' },
   vibrantHeaderCard: { background: 'linear-gradient(135deg, #0F766E 0%, #0D9488 100%)', borderRadius: '18px', padding: '16px', marginBottom: '18px', color: '#FFFFFF', boxShadow: '0 8px 20px rgba(15, 118, 110, 0.2)' },
   headerTopRow: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' },
+  brandLine: { display: 'flex', alignItems: 'center', gap: '6px' },
   brandSub: { fontSize: '9px', fontWeight: '800', color: '#99F6E4', letterSpacing: '0.8px' },
   greetingTitle: { fontSize: '18px', fontWeight: '800', color: '#FFFFFF', margin: '2px 0 0 0' },
   profileAvatarBtn: { width: '42px', height: '42px', borderRadius: '12px', backgroundColor: '#FFFFFF', border: 'none', display: 'flex', justifyContent: 'center', alignItems: 'center', cursor: 'pointer', boxShadow: '0 2px 6px rgba(0,0,0,0.1)' },
@@ -248,16 +251,18 @@ const styles = {
   guestPill: { fontSize: '9px', fontWeight: '800', backgroundColor: '#FFEDD5', color: '#C2410C', padding: '3px 8px', borderRadius: '6px' },
   locationText: { fontSize: '10px', color: '#E6FFFA', fontWeight: '600' },
   sectionHeader: { fontSize: '11px', fontWeight: '800', color: '#64748B', textTransform: 'uppercase', letterSpacing: '0.6px', marginBottom: '10px' },
-  sosBanner: { backgroundColor: '#FEF2F2', border: '1px solid #FCA5A5', borderRadius: '14px', padding: '12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '18px' },
+  sosBanner: { backgroundColor: '#F0FDF4', border: '1px solid #86EFAC', borderRadius: '14px', padding: '12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '18px' },
   sosLeft: { display: 'flex', alignItems: 'center', gap: '10px' },
-  sosIconBox: { width: '34px', height: '34px', borderRadius: '10px', backgroundColor: '#FEE2E2', display: 'flex', justifyContent: 'center', alignItems: 'center' },
-  sosTitle: { fontSize: '11px', fontWeight: '800', color: '#991B1B' },
-  sosSub: { fontSize: '10px', color: '#B91C1C' },
-  sosButton: { backgroundColor: '#DC2626', color: '#FFFFFF', border: 'none', padding: '8px 12px', borderRadius: '8px', fontSize: '11px', fontWeight: '800', cursor: 'pointer' },
+  sosIconBox: { width: '34px', height: '34px', borderRadius: '10px', backgroundColor: '#DCFCE7', display: 'flex', justifyContent: 'center', alignItems: 'center' },
+  sosTitle: { fontSize: '11px', fontWeight: '800', color: '#166534' },
+  sosSub: { fontSize: '10px', color: '#15803D' },
+  sosButton: { backgroundColor: '#0F766E', color: '#FFFFFF', border: 'none', padding: '8px 12px', borderRadius: '8px', fontSize: '11px', fontWeight: '800', cursor: 'pointer' },
+  penaltyNotice: { display: 'flex', flexDirection: 'column', gap: '5px', margin: '-4px 0 18px', padding: '12px', backgroundColor: '#FFF7ED', border: '1px solid #FED7AA', borderLeft: '4px solid #EA580C', borderRadius: '10px', color: '#7C2D12', fontSize: '11px', lineHeight: '1.45' },
   
   // 2x2 Grid with Horizontal Inner Card Layout
   grid2x2: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '18px' },
   horizontalCardTeal: { backgroundColor: '#F0FDF4', border: '1px solid #CCFBF1', borderRadius: '14px', padding: '12px', cursor: 'pointer', display: 'flex', flexDirection: 'row', alignItems: 'flex-start', gap: '10px', boxSizing: 'border-box' },
+  horizontalCardRestricted: { backgroundColor: '#FFF7ED', border: '1px solid #FED7AA', borderRadius: '14px', padding: '12px', cursor: 'not-allowed', display: 'flex', flexDirection: 'row', alignItems: 'flex-start', gap: '10px', boxSizing: 'border-box' },
   horizontalCardWhite: { backgroundColor: '#FFFFFF', border: '1px solid #E2E8F0', borderRadius: '14px', padding: '12px', cursor: 'pointer', display: 'flex', flexDirection: 'row', alignItems: 'flex-start', gap: '10px', boxSizing: 'border-box', boxShadow: '0 2px 6px rgba(0,0,0,0.03)' },
   cardIconSquareTeal: { width: '36px', height: '36px', borderRadius: '10px', backgroundColor: '#CCFBF1', display: 'flex', justifyContent: 'center', alignItems: 'center', flexShrink: 0 },
   cardIconSquareGray: { width: '36px', height: '36px', borderRadius: '10px', backgroundColor: '#F1F5F9', display: 'flex', justifyContent: 'center', alignItems: 'center', flexShrink: 0 },
@@ -265,7 +270,7 @@ const styles = {
   cardTitle: { fontSize: '12px', fontWeight: '800', color: '#0F172A', margin: '0 0 2px 0' },
   cardDesc: { fontSize: '9px', color: '#64748B', lineHeight: '1.3', margin: '0 0 6px 0' },
   cardActionText: { fontSize: '10px', fontWeight: '800', color: '#0F766E' },
-
+  cardActionRestricted: { fontSize: '10px', fontWeight: '800', color: '#B45309' },
   // Emergency SOS Modal
   modalBackdrop: { position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(15, 23, 42, 0.65)', backdropFilter: 'blur(4px)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 9999, padding: '16px' },
   modalCard: { backgroundColor: '#FFFFFF', borderRadius: '18px', padding: '18px', maxWidth: '380px', width: '100%', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.3)' },

@@ -8,11 +8,12 @@ export default function LandingScreen({ onResidentAccess, onGuestAccess }) {
       <div style={styles.cardContainer}>
         <div style={styles.logoWrapper}>
           <div style={styles.logoBox}>
-            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#CCFBF1" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
-              <path d="M12 8v4"/>
-              <path d="M12 16h.01"/>
-            </svg>
+            <img
+              src={`${process.env.PUBLIC_URL}/icons/agap-logo.svg`}
+              alt="Project AGAP shield"
+              width="48"
+              height="48"
+            />
           </div>
           <div style={styles.logoText}>PROJECT AGAP</div>
           <div style={styles.logoSubtext}>BATANGAS EMERGENCY NETWORK</div>
@@ -75,6 +76,14 @@ export default function LandingScreen({ onResidentAccess, onGuestAccess }) {
         <div style={styles.footerInfo}>
           Official LGU Emergency Hotlines | <strong>(043) 723-0000</strong>
         </div>
+        <a
+          href={`${process.env.PUBLIC_URL}/icons/`}
+          target="_blank"
+          rel="noreferrer"
+          style={styles.iconGalleryLink}
+        >
+          View and download the icon set
+        </a>
       </div>
     </div>
   );
@@ -98,5 +107,6 @@ const styles = {
   btnPrimary: { backgroundColor: '#0F766E', color: '#FFFFFF', boxShadow: '0 4px 14px rgba(15, 118, 110, 0.25)' },
   btnSecondary: { backgroundColor: '#F8FAFC', color: '#334155' },
   guestNotice: { marginTop: '20px', padding: '14px', backgroundColor: '#FEF3C7', border: '1px solid #FDE68A', color: '#92400E', borderRadius: '12px', fontSize: '11px', textAlign: 'left', lineHeight: '1.5' },
-  footerInfo: { marginTop: '28px', fontSize: '11px', color: '#94A3B8' }
+  footerInfo: { marginTop: '28px', fontSize: '11px', color: '#94A3B8' },
+  iconGalleryLink: { display: 'inline-block', marginTop: '12px', color: '#0F766E', fontSize: '11px', fontWeight: '700', textDecoration: 'none' }
 };
